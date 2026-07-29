@@ -1,21 +1,48 @@
-MIT License
-
 Copyright (c) 2026 LEGASEGA
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+# PolyForm Noncommercial License 1.0.0
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+## Purpose
+
+This license lets you use and share this software for noncommercial purposes only. If you want to build a business around it, sell it, or include it in a commercial product, you need to get a separate commercial license from the licensor.
+
+## Acceptance
+
+In order to get any license under these terms, you must agree to them as both strict obligations and conditions of all licenses granted to you.
+
+## Copyright License
+
+The licensor grants you a copyright license to do everything with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you must restrict yourself to noncommercial use.
+
+## Noncommercial Use
+
+Noncommercial use means use that is not for the purpose of:
+
+1. compensation, money, or financial benefit to you or others; or
+2. advertising or promotion of a commercial product, service, or brand.
+
+## Patent License
+
+The licensor grants you a patent license to do everything with the software that would otherwise infringe the licensor's patent claims, but only for noncommercial uses.
+
+## Relay, Proxy, and Aggregation
+
+You may not relay, proxy, or aggregate the software in a way that allows others to use it for commercial purposes.
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms.
+
+## No Trademark License
+
+This license does not grant you any right to use the licensor's trademarks, service marks, or trade names.
+
+## No Liability
+
+As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.
+
+## Definition of Software
+
+The software means the software, documentation, and anything else included in the repository or project that this file is in.
