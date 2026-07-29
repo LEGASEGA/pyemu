@@ -76,7 +76,7 @@ NES ButtonKeyboard KeyUp, Down, Left, RightArrow KeysAZBXStartEnter / ReturnSele
 🤝 Contributing
 ---------------
 
-Contributions, bug reports, and feature requests are welcome! If you want to help implement more NES mappers, improve the SNES PPU, or optimize the code, please feel free to open a Pull Request.
+Contributions, bug reports, and feature requests are welcome! If you want to help implement more NES mappers, improve the NES PPU, or optimize the code, please feel free to open a Pull Request.
 
 📜 License
 ----------
