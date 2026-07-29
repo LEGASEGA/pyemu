@@ -1,6 +1,6 @@
 import sys
 import struct
-from mapper import Mapper0, Mapper1, Mapper2, Mapper3, Mapper4, Mapper7
+from mapper import Mapper0, Mapper1, Mapper2, Mapper3, Mapper4, Mapper7, Mapper66
 
 MAPPER_CLASSES = {
     0: Mapper0,
@@ -9,6 +9,7 @@ MAPPER_CLASSES = {
     3: Mapper3,
     4: Mapper4,
     7: Mapper7,
+    66: Mapper66,
 }
 
 class Cartridge:

@@ -16,7 +16,6 @@ class Controller:
             self.shift_reg = self.button_states
         val = self.shift_reg & 1
         self.shift_reg >>= 1
-        # FIX: Open bus returns 0x40 (bit 6 set) for $4016
         return 0x40 | val
 
     def update_keys(self):
@@ -34,3 +33,30 @@ class Controller:
         self.button_states = state
         if self.strobe:
             self.shift_reg = state
+
+
+class Zapper:
+    def __init__(self, ppu=None):
+        self.ppu = ppu
+        self.trigger = False
+        self.mouse_x = 0
+        self.mouse_y = 0
+
+    def update_state(self, x, y, trigger):
+        self.mouse_x = x
+        self.mouse_y = y
+        self.trigger = trigger
+
+    def read(self):
+        val = 0
+        if self.trigger:
+            val |= 0x10  # Bit 4: Trigger pulled
+            
+        if self.ppu:
+            if 0 <= self.mouse_x < 256 and 0 <= self.mouse_y < 240:
+                idx = (self.mouse_y * 256 + self.mouse_x) * 3
+                r, g, b = self.ppu.pixel_data[idx], self.ppu.pixel_data[idx+1], self.ppu.pixel_data[idx+2]
+                # Duck Hunt flashes white targets on a black screen
+                if r > 200 and g > 200 and b > 200:
+                    val |= 0x08  # Bit 3: Light detected
+        return val

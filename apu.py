@@ -73,7 +73,8 @@ if IS_PYPY:
             elif addr == 0x4002: self.p1_timer_reg = (self.p1_timer_reg & 0x0700) | val; self.p1_timer = self.p1_timer_reg
             elif addr == 0x4003:
                 self.p1_timer_reg = (self.p1_timer_reg & 0x00FF) | ((val & 0x07) << 8); self.p1_timer = self.p1_timer_reg
-                if not self.p1_halt: self.p1_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.p1_length = self.length_table[(val >> 3) & 0x1F]
                 self.p1_env_counter = 15; self.p1_env_divider = self.p1_env_decay
             elif addr == 0x4004:
                 self.p2_duty = (val >> 6) & 0x03; self.p2_halt = bool(val & 0x20)
@@ -84,20 +85,23 @@ if IS_PYPY:
             elif addr == 0x4006: self.p2_timer_reg = (self.p2_timer_reg & 0x0700) | val; self.p2_timer = self.p2_timer_reg
             elif addr == 0x4007:
                 self.p2_timer_reg = (self.p2_timer_reg & 0x00FF) | ((val & 0x07) << 8); self.p2_timer = self.p2_timer_reg
-                if not self.p2_halt: self.p2_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.p2_length = self.length_table[(val >> 3) & 0x1F]
                 self.p2_env_counter = 15; self.p2_env_divider = self.p2_env_decay
             elif addr == 0x4008: self.tri_halt = bool(val & 0x80); self.tri_linear_reload = val & 0x7F
             elif addr == 0x400A: self.tri_timer = (self.tri_timer & 0x0700) | val
             elif addr == 0x400B:
                 self.tri_timer = (self.tri_timer & 0x00FF) | ((val & 0x07) << 8)
-                if not self.tri_halt: self.tri_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.tri_length = self.length_table[(val >> 3) & 0x1F]
                 self.tri_linear_reload_flag = True
             elif addr == 0x400C:
                 self.noise_halt = bool(val & 0x20); self.noise_env_active = not (val & 0x10)
                 self.noise_volume = val & 0x0F; self.noise_env_decay = val & 0x0F
             elif addr == 0x400E: self.noise_timer_reg = val & 0x0F
             elif addr == 0x400F:
-                if not self.noise_halt: self.noise_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.noise_length = self.length_table[(val >> 3) & 0x1F]
                 self.noise_env_counter = 15; self.noise_env_divider = self.noise_env_decay
             elif addr == 0x4015:
                 self.p1_enabled = bool(val & 0x01); self.p2_enabled = bool(val & 0x02)
@@ -112,7 +116,13 @@ if IS_PYPY:
                     self.clock_quarter_frame(); self.clock_half_frame()
                 self.frame_step = 0; self.frame_timer = 7457.3875
 
-        def read_status(self, addr): return 0x0F
+        def read_status(self, addr):
+            status = 0
+            if self.p1_length > 0: status |= 0x01
+            if self.p2_length > 0: status |= 0x02
+            if self.tri_length > 0: status |= 0x04
+            if self.noise_length > 0: status |= 0x08
+            return status
 
         def clock_quarter_frame(self):
             if self.p1_env_active:
@@ -305,7 +315,8 @@ else:
             elif addr == 0x4002: self.p1_timer = (self.p1_timer & 0x0700) | val
             elif addr == 0x4003:
                 self.p1_timer = (self.p1_timer & 0x00FF) | ((val & 0x07) << 8)
-                if not self.p1_halt: self.p1_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.p1_length = self.length_table[(val >> 3) & 0x1F]
                 self.p1_env_counter = 15
             elif addr == 0x4004:
                 self.p2_duty = (val >> 6) & 0x03; self.p2_halt = bool(val & 0x20)
@@ -313,19 +324,22 @@ else:
             elif addr == 0x4006: self.p2_timer = (self.p2_timer & 0x0700) | val
             elif addr == 0x4007:
                 self.p2_timer = (self.p2_timer & 0x00FF) | ((val & 0x07) << 8)
-                if not self.p2_halt: self.p2_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.p2_length = self.length_table[(val >> 3) & 0x1F]
                 self.p2_env_counter = 15
             elif addr == 0x4008: self.tri_halt = bool(val & 0x80)
             elif addr == 0x400A: self.tri_timer = (self.tri_timer & 0x0700) | val
             elif addr == 0x400B:
                 self.tri_timer = (self.tri_timer & 0x00FF) | ((val & 0x07) << 8)
-                if not self.tri_halt: self.tri_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.tri_length = self.length_table[(val >> 3) & 0x1F]
             elif addr == 0x400C:
                 self.noise_halt = bool(val & 0x20); self.noise_env_active = not (val & 0x10)
                 self.noise_volume = val & 0x0F; self.noise_env_decay = val & 0x0F
             elif addr == 0x400E: self.noise_timer = val & 0x0F
             elif addr == 0x400F:
-                if not self.noise_halt: self.noise_length = self.length_table[(val >> 3) & 0x1F]
+                # FIX: Always reload length counter, regardless of halt flag
+                self.noise_length = self.length_table[(val >> 3) & 0x1F]
                 self.noise_env_counter = 15
             elif addr == 0x4015:
                 self.p1_enabled = bool(val & 0x01); self.p2_enabled = bool(val & 0x02)
@@ -335,7 +349,13 @@ else:
                 if not self.tri_enabled: self.tri_length = 0
                 if not self.noise_enabled: self.noise_length = 0
 
-        def read_status(self, addr): return 0x0F
+        def read_status(self, addr):
+            status = 0
+            if self.p1_length > 0: status |= 0x01
+            if self.p2_length > 0: status |= 0x02
+            if self.tri_length > 0: status |= 0x04
+            if self.noise_length > 0: status |= 0x08
+            return status
 
         def clock_quarter_frame(self):
             if self.p1_env_active:

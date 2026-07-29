@@ -102,7 +102,8 @@ class Mapper1(Mapper):
                         self.chr_dirty = True  # NEW
                     elif reg == 3:
                         self.prg_bank = val & 0x0F
-                        self.prg_ram_protect = not (val & 0x10)
+                        # Bit 4 disables PRG RAM. If set, it is protected.
+                        self.prg_ram_protect = bool(val & 0x10)
                     self.shift_reg = 0x10
             return True
         return False
@@ -289,7 +290,8 @@ class Mapper4(Mapper):
             if not (addr & 0x0001):
                 self.mirroring = 1 - (data & 0x01)
             else:
-                self.prg_ram_protect = bool(data & 0x80)
+                # Bit 7 enables PRG RAM, Bit 6 write-protects it
+                self.prg_ram_protect = not (data & 0x80) or bool(data & 0x40)
             return True
 
         elif 0xC000 <= addr <= 0xDFFF:
@@ -352,3 +354,28 @@ class Mapper7(Mapper):
             self.selected_prg = data & 0x07
             return True
         return False
+
+class Mapper66(Mapper):
+    """GxROM (SMB + Duck Hunt)"""
+    def __init__(self, prg_banks: int, chr_banks: int):
+        super().__init__(prg_banks, chr_banks)
+        self.selected_prg = 0
+        self.selected_chr = 0
+
+    def cpu_map_read(self, addr: int) -> tuple[bool, int]:
+        if 0x8000 <= addr <= 0xFFFF:
+            return True, (self.selected_prg * 0x8000) + (addr & 0x7FFF)
+        return False, 0
+
+    def cpu_map_write(self, addr: int, data: int) -> bool:
+        if 0x8000 <= addr <= 0xFFFF:
+            self.selected_prg = (data >> 4) & 0x03
+            self.selected_chr = data & 0x03
+            self.chr_dirty = True
+            return True
+        return False
+
+    def ppu_map_read(self, addr: int) -> tuple[bool, int]:
+        if 0x0000 <= addr <= 0x1FFF:
+            return True, (self.selected_chr * 0x2000) + (addr & 0x1FFF)
+        return False, 0

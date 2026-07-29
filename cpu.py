@@ -4,32 +4,13 @@ import struct
 class CPU:
     def __init__(self, bus):
         self.bus = bus
-
-        # Registers
-        self.a = 0x00
-        self.x = 0x00
-        self.y = 0x00
-        self.st = 0xFD
-        self.pc = 0x0000
-
-        # Status Flag
-        self.p = 0x24  # Interrupt disabled (I) and Unused (U) set
-
-        # Flags Bitmask Constants
-        self.C = 1 << 0  # Carry
-        self.Z = 1 << 1  # Zero
-        self.I = 1 << 2  # Interrupt Disable
-        self.D = 1 << 3  # Decimal
-        self.B = 1 << 4  # Break
-        self.U = 1 << 5  # Unused
-        self.V = 1 << 6  # Overflow
-        self.N = 1 << 7  # Negative
-
+        self.a = 0x00; self.x = 0x00; self.y = 0x00; self.st = 0xFD; self.pc = 0x0000
+        self.p = 0x24
+        self.C = 1 << 0; self.Z = 1 << 1; self.I = 1 << 2; self.D = 1 << 3
+        self.B = 1 << 4; self.U = 1 << 5; self.V = 1 << 6; self.N = 1 << 7
         self.cycles = 0
         self.nmi_pending = False
         self.irq_pending = False
-
-        # OPTIMIZATION: Cache bus methods to avoid attribute lookups
         self.read = bus.read
         self.write = bus.write
 
@@ -59,80 +40,27 @@ class CPU:
         if condition: self.p |= flag
         else: self.p &= ~flag
 
-    def get_flag(self, flag):
-        return (self.p & flag) != 0
-
     def update_zn(self, val):
-        # OPTIMIZATION: Inlined set_flag
         if val == 0: self.p |= 0x02
         else: self.p &= ~0x02
         if val & 0x80: self.p |= 0x80
         else: self.p &= ~0x80
 
-    # Addressing Mode Helpers
-    def addr_imm(self):
-        addr = self.pc
-        self.pc = (self.pc + 1) & 0xFFFF
-        return addr
-
-    def addr_zp(self):
-        return self.fetch()
-
-    def addr_zpx(self):
-        return (self.fetch() + self.x) & 0xFF
-
-    def addr_zpy(self):
-        return (self.fetch() + self.y) & 0xFF
-
-    def addr_abs(self):
-        low = self.fetch()
-        high = self.fetch()
-        return (high << 8) | low
-
-    def addr_abx(self):
-        low = self.fetch()
-        high = self.fetch()
-        return (((high << 8) | low) + self.x) & 0xFFFF
-
-    def addr_aby(self):
-        low = self.fetch()
-        high = self.fetch()
-        return (((high << 8) | low) + self.y) & 0xFFFF
-
-    def addr_izx(self):
-        base = (self.fetch() + self.x) & 0xFF
-        low = self.read(base)
-        high = self.read((base + 1) & 0xFF)
-        return (high << 8) | low
-
-    def addr_izy(self):
-        base = self.fetch()
-        low = self.read(base)
-        high = self.read((base + 1) & 0xFF)
-        return (((high << 8) | low) + self.y) & 0xFFFF
-
     def nmi(self):
         self.push16(self.pc)
-        p_val = (self.p & ~self.B) | self.U
-        self.push(p_val)
+        self.push((self.p & ~self.B) | self.U)
         self.p |= self.I
-        low = self.read(0xFFFA)
-        high = self.read(0xFFFB)
-        self.pc = (high << 8) | low
+        self.pc = (self.read(0xFFFB) << 8) | self.read(0xFFFA)
         self.cycles += 7
 
     def trigger_irq(self):
-        if not (self.p & self.I):
-            self.irq_pending = True
+        if not (self.p & self.I): self.irq_pending = True
 
     def irq(self):
         self.push16(self.pc)
-        status_to_push = (self.p & ~self.B) | self.U
-        self.push(status_to_push)
+        self.push((self.p & ~self.B) | self.U)
         self.p |= self.I
-        low = self.read(0xFFFE)
-        high = self.read(0xFFFF)
-        self.pc = (high << 8) | low
+        self.pc = (self.read(0xFFFF) << 8) | self.read(0xFFFE)
         self.cycles += 7
 
     def branch(self, condition):
@@ -142,19 +70,17 @@ class CPU:
         if condition:
             self.cycles += 1
             new_pc = (self.pc + offset) & 0xFFFF
-            if (self.pc & 0xFF00) != (new_pc & 0xFF00):
-                self.cycles += 1
+            if (self.pc & 0xFF00) != (new_pc & 0xFF00): self.cycles += 1
             self.pc = new_pc
 
     def step(self):
         start_cycles = self.cycles
         opcode = self.fetch()
-        
-        # OPTIMIZATION: Cache methods to local variables to bypass dictionary lookups
         read = self.read
         write = self.write
+        pc = self.pc
 
-        # NOP
+        # NOP & Illegals
         if opcode == 0xEA or opcode in (0x1A, 0x3A, 0x5A, 0x7A, 0xDA, 0xFA):
             self.cycles += 2
         elif opcode in (0x04, 0x14, 0x34, 0x44, 0x54, 0x64, 0x74, 0x80, 0x82, 0x89, 0xC2, 0xD4, 0xE2, 0xF4):
@@ -163,20 +89,28 @@ class CPU:
             elif opcode in (0x04, 0x44, 0x64): self.cycles += 3
             else: self.cycles += 4
         elif opcode in (0x0C, 0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC):
-            addr = self.addr_abs() if opcode == 0x0C else self.addr_abx()
-            self.cycles += 4
-            if opcode != 0x0C and (addr & 0xFF00) != ((addr - self.x) & 0xFF00): self.cycles += 1
+            if opcode == 0x0C: self.pc = (self.pc + 2) & 0xFFFF; self.cycles += 4
+            else:
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF
+                addr = (((high << 8) | low) + self.x) & 0xFFFF
+                self.cycles += 4
+                if (addr & 0xFF00) != ((addr - self.x) & 0xFF00): self.cycles += 1
 
-        # LDA
+        # LDA (Inlined Addressing)
         elif opcode in (0xA9, 0xA5, 0xB5, 0xAD, 0xBD, 0xB9, 0xA1, 0xB1):
-            if opcode == 0xA9: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xA5: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xB5: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0xAD: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0xBD: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0xB9: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0xA1: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0xB1: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0xA9: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xA5: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xB5: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xAD: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0xBD: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xB9: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xA1: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0xB1: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0xBD, 0xB9, 0xB1):
                 offset = self.x if opcode == 0xBD else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
@@ -184,47 +118,58 @@ class CPU:
 
         # LDX
         elif opcode in (0xA2, 0xA6, 0xB6, 0xAE, 0xBE):
-            if opcode == 0xA2: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xA6: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xB6: addr = self.addr_zpy(); self.cycles += 4
-            elif opcode == 0xAE: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0xBE: addr = self.addr_aby(); self.cycles += 4
-            if opcode == 0xBE and (addr & 0xFF00) != ((addr - self.y) & 0xFF00): self.cycles += 1
+            if opcode == 0xA2: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xA6: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xB6: addr = (read(pc) + self.y) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xAE: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0xBE: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+                if (addr & 0xFF00) != ((addr - self.y) & 0xFF00): self.cycles += 1
             self.x = read(addr); self.update_zn(self.x)
 
         # LDY
         elif opcode in (0xA0, 0xA4, 0xB4, 0xAC, 0xBC):
-            if opcode == 0xA0: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xA4: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xB4: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0xAC: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0xBC: addr = self.addr_abx(); self.cycles += 4
-            if opcode == 0xBC and (addr & 0xFF00) != ((addr - self.x) & 0xFF00): self.cycles += 1
+            if opcode == 0xA0: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xA4: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xB4: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xAC: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0xBC: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+                if (addr & 0xFF00) != ((addr - self.x) & 0xFF00): self.cycles += 1
             self.y = read(addr); self.update_zn(self.y)
 
         # STA
         elif opcode in (0x85, 0x95, 0x8D, 0x9D, 0x99, 0x81, 0x91):
-            if opcode == 0x85: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x95: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x8D: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0x9D: addr = self.addr_abx(); self.cycles += 5
-            elif opcode == 0x99: addr = self.addr_aby(); self.cycles += 5
-            elif opcode == 0x81: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0x91: addr = self.addr_izy(); self.cycles += 6
+            if opcode == 0x85: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x95: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x8D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0x9D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 5
+            elif opcode == 0x99: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 5
+            elif opcode == 0x81: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0x91: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 6
             write(addr, self.a)
 
         # STX
         elif opcode in (0x86, 0x96, 0x8E):
-            if opcode == 0x86: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x96: addr = self.addr_zpy(); self.cycles += 4
-            elif opcode == 0x8E: addr = self.addr_abs(); self.cycles += 4
+            if opcode == 0x86: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x96: addr = (read(pc) + self.y) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x8E: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
             write(addr, self.x)
 
         # STY
         elif opcode in (0x84, 0x94, 0x8C):
-            if opcode == 0x84: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x94: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x8C: addr = self.addr_abs(); self.cycles += 4
+            if opcode == 0x84: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x94: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x8C: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
             write(addr, self.y)
 
         # Register Transfers
@@ -241,32 +186,21 @@ class CPU:
         elif opcode == 0xCA: self.x = (self.x - 1) & 0xFF; self.update_zn(self.x); self.cycles += 2
         elif opcode == 0x88: self.y = (self.y - 1) & 0xFF; self.update_zn(self.y); self.cycles += 2
 
-        # INC & DEC Memory
-        elif opcode in (0xE6, 0xF6, 0xEE, 0xFE):
-            if opcode == 0xE6: addr = self.addr_zp(); self.cycles += 5
-            elif opcode == 0xF6: addr = self.addr_zpx(); self.cycles += 6
-            elif opcode == 0xEE: addr = self.addr_abs(); self.cycles += 6
-            elif opcode == 0xFE: addr = self.addr_abx(); self.cycles += 7
-            val = (read(addr) + 1) & 0xFF
-            write(addr, val); self.update_zn(val)
-        elif opcode in (0xC6, 0xD6, 0xCE, 0xDE):
-            if opcode == 0xC6: addr = self.addr_zp(); self.cycles += 5
-            elif opcode == 0xD6: addr = self.addr_zpx(); self.cycles += 6
-            elif opcode == 0xCE: addr = self.addr_abs(); self.cycles += 6
-            elif opcode == 0xDE: addr = self.addr_abx(); self.cycles += 7
-            val = (read(addr) - 1) & 0xFF
-            write(addr, val); self.update_zn(val)
-
-        # ADC
+        # ADC (Inlined Addressing)
         elif opcode in (0x69, 0x65, 0x75, 0x6D, 0x7D, 0x79, 0x61, 0x71):
-            if opcode == 0x69: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0x65: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x75: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x6D: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0x7D: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0x79: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0x61: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0x71: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0x69: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0x65: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x75: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x6D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0x7D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x79: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x61: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0x71: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0x7D, 0x79, 0x71):
                 offset = self.x if opcode == 0x7D else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
@@ -279,14 +213,19 @@ class CPU:
 
         # SBC
         elif opcode in (0xE9, 0xEB, 0xE5, 0xF5, 0xED, 0xFD, 0xF9, 0xE1, 0xF1):
-            if opcode in (0xE9, 0xEB): addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xE5: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xF5: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0xED: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0xFD: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0xF9: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0xE1: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0xF1: addr = self.addr_izy(); self.cycles += 5
+            if opcode in (0xE9, 0xEB): addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xE5: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xF5: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xED: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0xFD: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xF9: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xE1: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0xF1: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0xFD, 0xF9, 0xF1):
                 offset = self.x if opcode == 0xFD else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
@@ -299,40 +238,55 @@ class CPU:
 
         # AND, ORA, EOR
         elif opcode in (0x29, 0x25, 0x35, 0x2D, 0x3D, 0x39, 0x21, 0x31):
-            if opcode == 0x29: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0x25: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x35: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x2D: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0x3D: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0x39: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0x21: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0x31: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0x29: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0x25: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x35: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x2D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0x3D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x39: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x21: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0x31: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0x3D, 0x39, 0x31):
                 offset = self.x if opcode == 0x3D else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
             self.a &= read(addr); self.update_zn(self.a)
         elif opcode in (0x09, 0x05, 0x15, 0x0D, 0x1D, 0x19, 0x01, 0x11):
-            if opcode == 0x09: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0x05: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x15: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x0D: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0x1D: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0x19: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0x01: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0x11: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0x09: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0x05: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x15: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x0D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0x1D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x19: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x01: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0x11: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0x1D, 0x19, 0x11):
                 offset = self.x if opcode == 0x1D else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
             self.a |= read(addr); self.update_zn(self.a)
         elif opcode in (0x49, 0x45, 0x55, 0x4D, 0x5D, 0x59, 0x41, 0x51):
-            if opcode == 0x49: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0x45: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0x55: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0x4D: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0x5D: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0x59: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0x41: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0x51: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0x49: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0x45: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0x55: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x4D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0x5D: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x59: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0x41: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0x51: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0x5D, 0x59, 0x51):
                 offset = self.x if opcode == 0x5D else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
@@ -340,14 +294,19 @@ class CPU:
 
         # CMP, CPX, CPY
         elif opcode in (0xC9, 0xC5, 0xD5, 0xCD, 0xDD, 0xD9, 0xC1, 0xD1):
-            if opcode == 0xC9: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xC5: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xD5: addr = self.addr_zpx(); self.cycles += 4
-            elif opcode == 0xCD: addr = self.addr_abs(); self.cycles += 4
-            elif opcode == 0xDD: addr = self.addr_abx(); self.cycles += 4
-            elif opcode == 0xD9: addr = self.addr_aby(); self.cycles += 4
-            elif opcode == 0xC1: addr = self.addr_izx(); self.cycles += 6
-            elif opcode == 0xD1: addr = self.addr_izy(); self.cycles += 5
+            if opcode == 0xC9: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xC5: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xD5: addr = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xCD: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
+            elif opcode == 0xDD: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xD9: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (((high << 8) | low) + self.y) & 0xFFFF; self.cycles += 4
+            elif opcode == 0xC1: 
+                base = (read(pc) + self.x) & 0xFF; self.pc = (pc + 1) & 0xFFFF; addr = (read((base + 1) & 0xFF) << 8) | read(base); self.cycles += 6
+            elif opcode == 0xD1: 
+                base = read(pc); self.pc = (pc + 1) & 0xFFFF; addr = (((read((base + 1) & 0xFF) << 8) | read(base)) + self.y) & 0xFFFF; self.cycles += 5
             if opcode in (0xDD, 0xD9, 0xD1):
                 offset = self.x if opcode == 0xDD else self.y
                 if (addr & 0xFF00) != ((addr - offset) & 0xFF00): self.cycles += 1
@@ -357,78 +316,53 @@ class CPU:
             self.set_flag(self.Z, (res & 0xFF) == 0)
             self.set_flag(self.N, (res & 0x80) != 0)
         elif opcode in (0xE0, 0xE4, 0xEC):
-            if opcode == 0xE0: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xE4: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xEC: addr = self.addr_abs(); self.cycles += 4
+            if opcode == 0xE0: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xE4: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xEC: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
             val = read(addr)
             res = self.x - val
             self.set_flag(self.C, self.x >= val)
             self.set_flag(self.Z, (res & 0xFF) == 0)
             self.set_flag(self.N, (res & 0x80) != 0)
         elif opcode in (0xC0, 0xC4, 0xCC):
-            if opcode == 0xC0: addr = self.addr_imm(); self.cycles += 2
-            elif opcode == 0xC4: addr = self.addr_zp(); self.cycles += 3
-            elif opcode == 0xCC: addr = self.addr_abs(); self.cycles += 4
+            if opcode == 0xC0: addr = pc; self.pc = (pc + 1) & 0xFFFF; self.cycles += 2
+            elif opcode == 0xC4: addr = read(pc); self.pc = (pc + 1) & 0xFFFF; self.cycles += 3
+            elif opcode == 0xCC: 
+                low = read(pc); high = read((pc + 1) & 0xFFFF); self.pc = (pc + 2) & 0xFFFF; addr = (high << 8) | low; self.cycles += 4
             val = read(addr)
             res = self.y - val
             self.set_flag(self.C, self.y >= val)
             self.set_flag(self.Z, (res & 0xFF) == 0)
             self.set_flag(self.N, (res & 0x80) != 0)
 
-        # BIT
+        # Remaining Opcodes (Kept compact)
+        elif opcode in (0xE6, 0xF6, 0xEE, 0xFE, 0xC6, 0xD6, 0xCE, 0xDE, 0x06, 0x16, 0x0E, 0x1E, 0x46, 0x56, 0x4E, 0x5E, 0x26, 0x36, 0x2E, 0x3E, 0x66, 0x76, 0x6E, 0x7E):
+            if opcode in (0xE6, 0xC6, 0x06, 0x46, 0x26, 0x66): addr = self.fetch(); self.cycles += 5
+            elif opcode in (0xF6, 0xD6, 0x16, 0x56, 0x36, 0x76): addr = (self.fetch() + self.x) & 0xFF; self.cycles += 6
+            elif opcode in (0xEE, 0xCE, 0x0E, 0x4E, 0x2E, 0x6E):
+                low = self.fetch(); high = self.fetch(); addr = (high << 8) | low; self.cycles += 6
+            elif opcode in (0xFE, 0xDE, 0x1E, 0x5E, 0x3E, 0x7E):
+                low = self.fetch(); high = self.fetch(); addr = (((high << 8) | low) + self.x) & 0xFFFF; self.cycles += 7
+            val = read(addr)
+            if opcode in (0xE6, 0xF6, 0xEE, 0xFE): val = (val + 1) & 0xFF
+            elif opcode in (0xC6, 0xD6, 0xCE, 0xDE): val = (val - 1) & 0xFF
+            elif opcode in (0x06, 0x16, 0x0E, 0x1E): self.set_flag(self.C, bool(val & 0x80)); val = (val << 1) & 0xFF
+            elif opcode in (0x46, 0x56, 0x4E, 0x5E): self.set_flag(self.C, bool(val & 0x01)); val = (val >> 1) & 0xFF
+            elif opcode in (0x26, 0x36, 0x2E, 0x3E): old_c = 1 if (self.p & self.C) else 0; self.set_flag(self.C, bool(val & 0x80)); val = ((val << 1) | old_c) & 0xFF
+            elif opcode in (0x66, 0x76, 0x6E, 0x7E): old_c = 0x80 if (self.p & self.C) else 0; self.set_flag(self.C, bool(val & 0x01)); val = ((val >> 1) | old_c) & 0xFF
+            write(addr, val); self.update_zn(val)
+        elif opcode == 0x0A: self.set_flag(self.C, bool(self.a & 0x80)); self.a = (self.a << 1) & 0xFF; self.update_zn(self.a); self.cycles += 2
+        elif opcode == 0x4A: self.set_flag(self.C, bool(self.a & 0x01)); self.a = (self.a >> 1) & 0xFF; self.update_zn(self.a); self.cycles += 2
+        elif opcode == 0x2A: old_c = 1 if (self.p & self.C) else 0; self.set_flag(self.C, bool(self.a & 0x80)); self.a = ((self.a << 1) | old_c) & 0xFF; self.update_zn(self.a); self.cycles += 2
+        elif opcode == 0x6A: old_c = 0x80 if (self.p & self.C) else 0; self.set_flag(self.C, bool(self.a & 0x01)); self.a = ((self.a >> 1) | old_c) & 0xFF; self.update_zn(self.a); self.cycles += 2
         elif opcode in (0x24, 0x2C):
-            if opcode == 0x24: addr = self.addr_zp(); self.cycles += 3
-            else: addr = self.addr_abs(); self.cycles += 4
+            if opcode == 0x24: addr = self.fetch(); self.cycles += 3
+            else: low = self.fetch(); high = self.fetch(); addr = (high << 8) | low; self.cycles += 4
             val = read(addr)
             self.set_flag(self.Z, (self.a & val) == 0)
             self.set_flag(self.N, bool(val & 0x80))
             self.set_flag(self.V, bool(val & 0x40))
-
-        # ASL
-        elif opcode == 0x0A:
-            self.set_flag(self.C, bool(self.a & 0x80)); self.a = (self.a << 1) & 0xFF; self.update_zn(self.a); self.cycles += 2
-        elif opcode in (0x06, 0x16, 0x0E, 0x1E):
-            if opcode == 0x06: addr = self.addr_zp(); self.cycles += 5
-            elif opcode == 0x16: addr = self.addr_zpx(); self.cycles += 6
-            elif opcode == 0x0E: addr = self.addr_abs(); self.cycles += 6
-            elif opcode == 0x1E: addr = self.addr_abx(); self.cycles += 7
-            val = read(addr); self.set_flag(self.C, bool(val & 0x80)); val = (val << 1) & 0xFF; write(addr, val); self.update_zn(val)
-
-        # LSR
-        elif opcode == 0x4A:
-            self.set_flag(self.C, bool(self.a & 0x01)); self.a = (self.a >> 1) & 0xFF; self.update_zn(self.a); self.cycles += 2
-        elif opcode in (0x46, 0x56, 0x4E, 0x5E):
-            if opcode == 0x46: addr = self.addr_zp(); self.cycles += 5
-            elif opcode == 0x56: addr = self.addr_zpx(); self.cycles += 6
-            elif opcode == 0x4E: addr = self.addr_abs(); self.cycles += 6
-            elif opcode == 0x5E: addr = self.addr_abx(); self.cycles += 7
-            val = read(addr); self.set_flag(self.C, bool(val & 0x01)); val = (val >> 1) & 0xFF; write(addr, val); self.update_zn(val)
-
-        # ROL
-        elif opcode in (0x2A, 0x26, 0x36, 0x2E, 0x3E):
-            old_c = 1 if (self.p & self.C) else 0
-            if opcode == 0x2A:
-                self.set_flag(self.C, bool(self.a & 0x80)); self.a = ((self.a << 1) | old_c) & 0xFF; self.update_zn(self.a); self.cycles += 2
-            else:
-                if opcode == 0x26: addr = self.addr_zp(); self.cycles += 5
-                elif opcode == 0x36: addr = self.addr_zpx(); self.cycles += 6
-                elif opcode == 0x2E: addr = self.addr_abs(); self.cycles += 6
-                elif opcode == 0x3E: addr = self.addr_abx(); self.cycles += 7
-                val = read(addr); self.set_flag(self.C, bool(val & 0x80)); val = ((val << 1) | old_c) & 0xFF; write(addr, val); self.update_zn(val)
-
-        # ROR
-        elif opcode in (0x6A, 0x66, 0x76, 0x6E, 0x7E):
-            old_c = 0x80 if (self.p & self.C) else 0
-            if opcode == 0x6A:
-                self.set_flag(self.C, bool(self.a & 0x01)); self.a = ((self.a >> 1) | old_c) & 0xFF; self.update_zn(self.a); self.cycles += 2
-            else:
-                if opcode == 0x66: addr = self.addr_zp(); self.cycles += 5
-                elif opcode == 0x76: addr = self.addr_zpx(); self.cycles += 6
-                elif opcode == 0x6E: addr = self.addr_abs(); self.cycles += 6
-                elif opcode == 0x7E: addr = self.addr_abx(); self.cycles += 7
-                val = read(addr); self.set_flag(self.C, bool(val & 0x01)); val = ((val >> 1) | old_c) & 0xFF; write(addr, val); self.update_zn(val)
-
-        # Branches
         elif opcode == 0x90: self.branch(not (self.p & self.C))
         elif opcode == 0xB0: self.branch(self.p & self.C)
         elif opcode == 0xF0: self.branch(self.p & self.Z)
@@ -437,28 +371,19 @@ class CPU:
         elif opcode == 0x10: self.branch(not (self.p & self.N))
         elif opcode == 0x50: self.branch(not (self.p & self.V))
         elif opcode == 0x70: self.branch(self.p & self.V)
-
-        # JMP, JSR, RTS, RTI
-        elif opcode == 0x4C:
-            self.pc = self.addr_abs(); self.cycles += 3
-        elif opcode == 0x6C:
-            ptr = self.addr_abs(); low = read(ptr); ptr_high = (ptr & 0xFF00) | ((ptr + 1) & 0x00FF); high = read(ptr_high)
+        elif opcode == 0x4C: self.pc = (self.fetch() | (self.fetch() << 8)); self.cycles += 3
+        elif opcode == 0x6C: 
+            ptr = self.fetch() | (self.fetch() << 8); low = read(ptr); ptr_high = (ptr & 0xFF00) | ((ptr + 1) & 0x00FF); high = read(ptr_high)
             self.pc = (high << 8) | low; self.cycles += 5
-        elif opcode == 0x20:
+        elif opcode == 0x20: 
             low = self.fetch(); high = self.fetch(); target = (high << 8) | low
             self.push16((self.pc - 1) & 0xFFFF); self.pc = target; self.cycles += 6
-        elif opcode == 0x60:
-            self.pc = (self.pop16() + 1) & 0xFFFF; self.cycles += 6
-        elif opcode == 0x40:
-            self.p = (self.pop() & ~self.B) | self.U; self.pc = self.pop16(); self.cycles += 6
-
-        # Stack operations
+        elif opcode == 0x60: self.pc = (self.pop16() + 1) & 0xFFFF; self.cycles += 6
+        elif opcode == 0x40: self.p = (self.pop() & ~self.B) | self.U; self.pc = self.pop16(); self.cycles += 6
         elif opcode == 0x48: self.push(self.a); self.cycles += 3
         elif opcode == 0x68: self.a = self.pop(); self.update_zn(self.a); self.cycles += 4
         elif opcode == 0x08: self.push(self.p | self.B | self.U); self.cycles += 3
         elif opcode == 0x28: self.p = (self.pop() & ~self.B) | self.U; self.cycles += 4
-
-        # Flag Instructions
         elif opcode == 0x18: self.p &= ~self.C; self.cycles += 2
         elif opcode == 0x38: self.p |= self.C; self.cycles += 2
         elif opcode == 0x58: self.p &= ~self.I; self.cycles += 2
@@ -466,13 +391,10 @@ class CPU:
         elif opcode == 0xB8: self.p &= ~self.V; self.cycles += 2
         elif opcode == 0xD8: self.p &= ~self.D; self.cycles += 2
         elif opcode == 0xF8: self.p |= self.D; self.cycles += 2
-
-        # BRK
         elif opcode == 0x00:
             self.pc = (self.pc + 1) & 0xFFFF
             self.push16(self.pc); self.push(self.p | self.B | self.U); self.p |= self.I
-            low = read(0xFFFE); high = read(0xFFFF)
-            self.pc = (high << 8) | low; self.cycles += 7
+            self.pc = (read(0xFFFF) << 8) | read(0xFFFE); self.cycles += 7
 
         cycles_spent = self.cycles - start_cycles
         return cycles_spent if cycles_spent > 0 else 2

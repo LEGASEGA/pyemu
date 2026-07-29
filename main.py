@@ -7,9 +7,8 @@ from cartridge import Cartridge
 from bus import Bus
 from cpu import CPU
 from ppu import PPU
-from controller import Controller
+from controller import Controller, Zapper
 
-# Detect if we are running on PyPy
 IS_PYPY = platform.python_implementation() == 'PyPy'
 
 def get_rom_path():
@@ -113,17 +112,16 @@ def get_rom_path():
 
 class EmulatorApp:
     def __init__(self):
-        # FIX: pre_init MUST be called before pygame.init()
         pygame.mixer.pre_init(44100, -16, 1, 1024)
         pygame.init()
-        
-        self.screen = pygame.display.set_mode((1024, 640))
+        self.screen = pygame.display.set_mode((1024, 640), pygame.DOUBLEBUF)
         pygame.display.set_caption("PYemu - NES Emulator")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 16, bold=True)
         self.small_font = pygame.font.SysFont("monospace", 12, bold=True)
 
         self.controller = Controller()
+        self.zapper = Zapper()
         self.rom_file = None
         self.is_powered_on = False
         
@@ -132,14 +130,13 @@ class EmulatorApp:
         self.bus = None
         self.cart = None
         
-        # UI Rectangles
         self.power_rect = pygame.Rect(532, 50, 200, 40)
         self.reset_rect = pygame.Rect(532, 100, 200, 40)
         self.change_rom_rect = pygame.Rect(532, 150, 200, 40)
         self.chr_toggle_rect = pygame.Rect(532, 200, 200, 40)
         
         self.show_chr = True
-        self.frame_count = 0
+        self.chr_update_timer = 0
         self.chr_pixels = bytearray(256 * 256 * 3)
         self.chr_surface = None
         
@@ -148,25 +145,23 @@ class EmulatorApp:
 
     def boot_system(self):
         try:
-            if not pygame.mixer.get_init():
-                pygame.mixer.init()
+            if not pygame.mixer.get_init(): pygame.mixer.init()
             self.sound_channel = pygame.mixer.Channel(0)
         except pygame.error as e:
-            print(f"Warning: Audio could not be initialized. Error: {e}")
             self.sound_channel = None
 
         self.cart = Cartridge(self.rom_file)
         self.ppu = PPU(cartridge=self.cart)
-        self.bus = Bus(cpu=None, ppu=self.ppu, cartridge=self.cart, controller=self.controller)
+        self.zapper.ppu = self.ppu  # Link PPU to Zapper for light detection
+        self.bus = Bus(cpu=None, ppu=self.ppu, cartridge=self.cart, controller=self.controller, zapper=self.zapper)
         self.cpu = CPU(self.bus)
         
         self.bus.cpu = self.cpu
         self.ppu.cpu = self.cpu
         
-        low = self.bus.read(0xFFFC)
-        high = self.bus.read(0xFFFD)
-        self.cpu.pc = (high << 8) | low
+        self.cpu.pc = (self.bus.read(0xFFFD) << 8) | self.bus.read(0xFFFC)
         self.is_powered_on = True
+        self.mapper = self.cart.mapper if hasattr(self.cart, 'mapper') else None
 
     def reset_system(self):
         if not self.cpu: return
@@ -177,7 +172,6 @@ class EmulatorApp:
 
     def run(self):
         running = True
-        # OPTIMIZATION: Cache all hot-loop methods to local variables
         cpu = self.cpu
         ppu = self.ppu
         apu = self.bus.apu
@@ -188,71 +182,63 @@ class EmulatorApp:
         apu_step = apu.step if IS_PYPY else None
         apu_get_buf = apu.get_frame_buffer if IS_PYPY else apu.generate_samples
         sound_channel = self.sound_channel
+        mapper = self.mapper
+        zapper = self.zapper
         
         while running:
             self.controller.update_keys()
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+                if event.type == pygame.QUIT: running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_p:
-                        self.is_powered_on = not self.is_powered_on
+                    if event.key == pygame.K_p: self.is_powered_on = not self.is_powered_on
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.power_rect.collidepoint(event.pos):
-                        self.is_powered_on = not self.is_powered_on
-                    elif self.reset_rect.collidepoint(event.pos):
-                        self.reset_system()
+                    if self.power_rect.collidepoint(event.pos): self.is_powered_on = not self.is_powered_on
+                    elif self.reset_rect.collidepoint(event.pos): self.reset_system()
                     elif self.change_rom_rect.collidepoint(event.pos) and not self.is_powered_on:
                         new_rom = get_rom_path()
                         if new_rom:
                             self.rom_file = new_rom
                             self.boot_system()
-                            # Re-cache after boot
                             cpu = self.cpu; ppu = self.ppu; apu = self.bus.apu
                             cpu_step = cpu.step; ppu_step = ppu.step; cpu_nmi = cpu.nmi; cpu_irq = cpu.irq
                             apu_step = apu.step if IS_PYPY else None
                             apu_get_buf = apu.get_frame_buffer if IS_PYPY else apu.generate_samples
-                    elif self.chr_toggle_rect.collidepoint(event.pos):
-                        self.show_chr = not self.show_chr
+                            mapper = self.mapper
+                    elif self.chr_toggle_rect.collidepoint(event.pos): self.show_chr = not self.show_chr
+
+            # Update Zapper state
+            mouse_pressed = pygame.mouse.get_pressed()[0]
+            mouse_pos = pygame.mouse.get_pos()
+            # Map screen coords (512x480) to NES coords (256x240)
+            nes_x = mouse_pos[0] * 256 // 512
+            nes_y = mouse_pos[1] * 240 // 480
+            zapper.update_state(nes_x, nes_y, mouse_pressed)
 
             if self.is_powered_on and cpu and ppu:
                 ppu.frame_complete = False
                 while not ppu.frame_complete:
                     cycles = cpu_step()
                     ppu_step(cycles * 3)
-
-                    # FIX: Step APU dynamically on PyPy for cycle accuracy
-                    if apu_step:
-                        apu_step(cycles)
+                    if apu_step: apu_step(cycles)
 
                     if cpu.nmi_pending:
                         cpu.nmi_pending = False
                         cpu_nmi()
                         ppu_step(21)
 
-                    mapper = self.cart.mapper if hasattr(self.cart, 'mapper') else None
-                    if mapper and getattr(mapper, 'irq_state', False) and not (cpu.p & 0x04):
+                    if mapper and mapper.irq_state and not (cpu.p & 0x04):
                         mapper.irq_state = False
                         cpu_irq()
                         ppu_step(21)
 
-                # PLAY AUDIO
                 if sound_channel:
                     try:
-                        if IS_PYPY:
-                            audio_buffer = apu_get_buf()
-                            audio_bytes = bytes(audio_buffer) # PyPy array to bytes
-                        else:
-                            audio_buffer = apu_get_buf()
-                            audio_bytes = audio_buffer.tobytes() # Numpy array to bytes
-                            
+                        audio_buffer = apu_get_buf()
+                        audio_bytes = bytes(audio_buffer) if IS_PYPY else audio_buffer.tobytes()
                         sound = pygame.mixer.Sound(buffer=audio_bytes)
-                        if not sound_channel.get_busy():
-                            sound_channel.play(sound)
-                        elif sound_channel.get_queue() is None:
-                            sound_channel.queue(sound)
-                    except Exception as e:
-                        print(f"Audio playback error: {e}")
+                        if not sound_channel.get_busy(): sound_channel.play(sound)
+                        elif sound_channel.get_queue() is None: sound_channel.queue(sound)
+                    except: pass
 
             self.draw_ui()
             self.clock.tick(60)
@@ -284,9 +270,7 @@ class EmulatorApp:
                             color_bit = ((chr_low >> bit) & 1) | (((chr_high >> bit) & 1) << 1)
                             c = 50 * color_bit
                             idx = (base_y * 256 + base_x + col) * 3
-                            chr_pixels[idx] = c
-                            chr_pixels[idx+1] = c
-                            chr_pixels[idx+2] = c
+                            chr_pixels[idx] = c; chr_pixels[idx+1] = c; chr_pixels[idx+2] = c
                             
         self.chr_surface = pygame.image.frombuffer(bytes(chr_pixels), (256, 256), "RGB")
 
@@ -299,12 +283,9 @@ class EmulatorApp:
         self.screen.blit(label_surf, (x_offset + 5, 485))
         
         if len(data) > 1:
-            points = []
-            for i, val in enumerate(data):
-                py = y_center - (val // 100)
-                points.append((x_offset + i, py))
-            if len(points) > 1:
-                pygame.draw.aalines(self.screen, color, False, points)
+            points = [(x_offset + i, y_center - (val // 100)) for i, val in enumerate(data)]
+            if len(points) > 1: 
+                pygame.draw.lines(self.screen, color, False, points)
 
     def draw_ui(self):
         if self.ppu:
@@ -313,6 +294,13 @@ class EmulatorApp:
             self.screen.blit(scaled, (0, 0))
         else:
             self.screen.fill((0,0,0), (0,0,512,480))
+
+        # Draw Zapper Crosshair
+        mouse_pos = pygame.mouse.get_pos()
+        if mouse_pos[0] < 512 and mouse_pos[1] < 480:
+            pygame.draw.line(self.screen, (255, 0, 0), (mouse_pos[0] - 10, mouse_pos[1]), (mouse_pos[0] + 10, mouse_pos[1]), 2)
+            pygame.draw.line(self.screen, (255, 0, 0), (mouse_pos[0], mouse_pos[1] - 10), (mouse_pos[0], mouse_pos[1] + 10), 2)
+            pygame.draw.circle(self.screen, (255, 0, 0), mouse_pos, 5, 1)
 
         pygame.draw.rect(self.screen, (30, 30, 30), (512, 0, 256, 480))
         pygame.draw.line(self.screen, (100, 100, 100), (512, 0), (512, 480), 2)
@@ -324,29 +312,29 @@ class EmulatorApp:
         state_text = self.font.render("State: ON" if self.is_powered_on else "State: OFF", True, state_color)
         self.screen.blit(state_text, (522, 30))
 
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos_ui = pygame.mouse.get_pos()
         
         power_color = (200, 50, 50) if self.is_powered_on else (50, 200, 50)
-        if self.power_rect.collidepoint(mouse_pos): power_color = tuple(min(c+30, 255) for c in power_color)
+        if self.power_rect.collidepoint(mouse_pos_ui): power_color = tuple(min(c+30, 255) for c in power_color)
         pygame.draw.rect(self.screen, power_color, self.power_rect, border_radius=5)
         power_text = self.font.render("POWER OFF" if self.is_powered_on else "POWER ON", True, (0,0,0))
         self.screen.blit(power_text, (power_text.get_rect(center=self.power_rect.center)))
 
         reset_color = (80, 80, 80)
-        if self.reset_rect.collidepoint(mouse_pos): reset_color = (110, 110, 110)
+        if self.reset_rect.collidepoint(mouse_pos_ui): reset_color = (110, 110, 110)
         pygame.draw.rect(self.screen, reset_color, self.reset_rect, border_radius=5)
         reset_text = self.font.render("RESET", True, (255, 255, 255))
         self.screen.blit(reset_text, (reset_text.get_rect(center=self.reset_rect.center)))
 
         rom_color = (80, 80, 80) if not self.is_powered_on else (40, 40, 40)
-        if self.change_rom_rect.collidepoint(mouse_pos) and not self.is_powered_on: rom_color = (110, 110, 110)
+        if self.change_rom_rect.collidepoint(mouse_pos_ui) and not self.is_powered_on: rom_color = (110, 110, 110)
         pygame.draw.rect(self.screen, rom_color, self.change_rom_rect, border_radius=5)
         rom_text_color = (255, 255, 255) if not self.is_powered_on else (100,100,100)
         rom_text = self.font.render("CHANGE ROM", True, rom_text_color)
         self.screen.blit(rom_text, (rom_text.get_rect(center=self.change_rom_rect.center)))
 
         chr_color = (50, 100, 150) if self.show_chr else (50, 50, 50)
-        if self.chr_toggle_rect.collidepoint(mouse_pos): chr_color = tuple(min(c+30, 255) for c in chr_color)
+        if self.chr_toggle_rect.collidepoint(mouse_pos_ui): chr_color = tuple(min(c+30, 255) for c in chr_color)
         pygame.draw.rect(self.screen, chr_color, self.chr_toggle_rect, border_radius=5)
         chr_text = self.font.render("HIDE CHR" if self.show_chr else "SHOW CHR", True, (255, 255, 255))
         self.screen.blit(chr_text, (chr_text.get_rect(center=self.chr_toggle_rect.center)))
@@ -373,9 +361,10 @@ class EmulatorApp:
         pygame.draw.line(self.screen, (100, 100, 100), (768, 0), (768, 480), 2)
         
         if self.show_chr and self.cart:
-            self.frame_count += 1
-            if self.frame_count % 5 == 0 or self.chr_surface is None:
+            self.chr_update_timer += 1
+            if self.chr_update_timer >= 60 or self.chr_surface is None:
                 self.update_chr_viewer()
+                self.chr_update_timer = 0
             
             if self.chr_surface:
                 self.screen.blit(self.chr_surface, (768, 100))
