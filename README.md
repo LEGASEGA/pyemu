@@ -8,7 +8,7 @@ Written entirely from scratch in Python, PYemu is optimized to run at full speed
 ✨ Current Features (NES)
 ------------------------
 
-*   **Cycle-Accurate 6502 CPU:** Full opcode support, cycle counting, and NMI/IRQ handling.
+*   **Cycle-Accurate 6502 CPU:** Full opcode support(for OFFICIAL instructions), cycle counting, and NMI/IRQ handling.
     
 *   **Custom PPU:** Supports background rendering, 64 sprites, 8x16 sprites, horizontal/vertical scrolling, and dynamic CHR bank switching.
     
@@ -32,11 +32,11 @@ Written entirely from scratch in Python, PYemu is optimized to run at full speed
     
 *   **Mapper 1 (MMC1):** Fully supported. (e.g., _Mega Man 2_, _The Legend of Zelda_)
     
-*   **Mapper 2 (UxROM):** Fully supported with bus conflict emulation. (e.g., _Mega Man_, _Castlevania_)
+*   **Mapper 2 (UxROM):** Almost fully supported with bus conflict emulation. (e.g., _Mega Man_, _Castlevania_)
     
-*   **Mapper 3 (CNROM):** Limited support.
+*   **Mapper 3 (CNROM):** Limited support, graphical glitches.
     
-*   **Mapper 4 (MMC3):** Experimental (PRG/CHR banking implemented, though advanced scanline timing may still cause issues in games like _Super Mario Bros. 3_).
+*   **Mapper 4 (MMC3):** Almost fully supported. _Super Mario Bros. 3_ is supported fully, while the other titles may experience graphical glitches
     
 
 🚀 SNES Expansion (Roadmap)
