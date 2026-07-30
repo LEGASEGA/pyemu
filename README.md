@@ -37,7 +37,8 @@ Written entirely from scratch in Python, PYemu is optimized to run at full speed
 *   **Mapper 3 (CNROM):** Limited support, graphical glitches.
     
 *   **Mapper 4 (MMC3):** Almost fully supported. _Super Mario Bros. 3_ is supported fully, while the other titles may experience graphical glitches
-*.  **Mapper 66** it runs?
+
+*  **Mapper 66** it runs?
     
 
 🚀 SNES Expansion (Roadmap)
