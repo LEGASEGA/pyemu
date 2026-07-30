@@ -152,7 +152,7 @@ class EmulatorApp:
 
         self.cart = Cartridge(self.rom_file)
         self.ppu = PPU(cartridge=self.cart)
-        self.zapper.ppu = self.ppu  # Link PPU to Zapper for light detection
+        self.zapper.ppu = self.ppu
         self.bus = Bus(cpu=None, ppu=self.ppu, cartridge=self.cart, controller=self.controller, zapper=self.zapper)
         self.cpu = CPU(self.bus)
         
@@ -206,20 +206,24 @@ class EmulatorApp:
                             mapper = self.mapper
                     elif self.chr_toggle_rect.collidepoint(event.pos): self.show_chr = not self.show_chr
 
-            # Update Zapper state
             mouse_pressed = pygame.mouse.get_pressed()[0]
             mouse_pos = pygame.mouse.get_pos()
-            # Map screen coords (512x480) to NES coords (256x240)
             nes_x = mouse_pos[0] * 256 // 512
             nes_y = mouse_pos[1] * 240 // 480
             zapper.update_state(nes_x, nes_y, mouse_pressed)
 
             if self.is_powered_on and cpu and ppu:
                 ppu.frame_complete = False
+                apu_cycle_accum = 0  # OPTIMIZATION: Batch APU cycles to reduce method call overhead
                 while not ppu.frame_complete:
                     cycles = cpu_step()
                     ppu_step(cycles * 3)
-                    if apu_step: apu_step(cycles)
+                    
+                    if apu_step:
+                        apu_cycle_accum += cycles
+                        if apu_cycle_accum >= 16:  # Step APU in chunks of 16 cycles
+                            apu_step(apu_cycle_accum)
+                            apu_cycle_accum = 0
 
                     if cpu.nmi_pending:
                         cpu.nmi_pending = False
@@ -230,6 +234,9 @@ class EmulatorApp:
                         mapper.irq_state = False
                         cpu_irq()
                         ppu_step(21)
+                
+                if apu_step and apu_cycle_accum > 0:
+                    apu_step(apu_cycle_accum)
 
                 if sound_channel:
                     try:
@@ -295,7 +302,6 @@ class EmulatorApp:
         else:
             self.screen.fill((0,0,0), (0,0,512,480))
 
-        # Draw Zapper Crosshair
         mouse_pos = pygame.mouse.get_pos()
         if mouse_pos[0] < 512 and mouse_pos[1] < 480:
             pygame.draw.line(self.screen, (255, 0, 0), (mouse_pos[0] - 10, mouse_pos[1]), (mouse_pos[0] + 10, mouse_pos[1]), 2)

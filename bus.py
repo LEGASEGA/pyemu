@@ -34,8 +34,8 @@ class Bus:
             elif addr == 0x4017:
                 if self.zapper_read:
                     return self.zapper_read()
-                return 0x00
-            return 0
+                return 0x40
+            return 0x40
         else:
             return self.cart_cpu_read(addr)
 

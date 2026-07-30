@@ -89,3 +89,5 @@ class Cartridge:
         handled, mapped_addr = self.ppu_map_write(addr, val)
         if handled and mapped_addr < self.chr_rom_len:
             self.chr_rom[mapped_addr] = val
+            return True
+        return False
