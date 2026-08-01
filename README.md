@@ -85,7 +85,7 @@ Contributions, bug reports, and feature requests are welcome! If you want to hel
 
 Copyright (c) 2026 LEGASEGA.
 
-This project is licensed under the **PolyForm Noncommercial License 1.0.0**.You may view, modify, and contribute to this project, but you **may not** use it for any commercial purpose. See the [LICENSE](https://chat.z.ai/c/LICENSE) file for full details.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**.You may view, modify, and contribute to this project, but you **may not** use it for any commercial purpose. See the LICENSE file for full details.
 
 ## Development & Acknowledgments
 This project was built to explore and understand NES architecture (6502 CPU execution, PPU rendering, and memory mapping). 
